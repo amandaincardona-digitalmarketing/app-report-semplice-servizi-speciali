@@ -1,0 +1,165 @@
+import streamlit as st
+import pandas as pd
+from fpdf import FPDF
+import io
+
+# --- CONFIGURAZIONE PAGINA STREAMLIT ---
+st.set_page_config(page_title="Report Semplice", page_icon="📊")
+
+# --- CLASSE PDF PERSONALIZZATA ---
+class SeniorPDF(FPDF):
+    def header(self):
+        # Titolo Documento
+        self.set_font('Arial', 'B', 24)
+        self.cell(0, 10, 'Report Mensile', 0, 1, 'C')
+        self.ln(10)
+
+    def draw_card(self, title, value, unit="", color=(230, 240, 255), is_lead=False):
+        # Imposta colore sfondo (RGB)
+        self.set_fill_color(*color)
+        
+        # Disegna rettangolo arrotondato (simulato) o box colorato
+        # x, y, w, h, style
+        self.rect(self.get_x(), self.get_y(), 190, 35, 'F')
+        
+        # Salviamo la Y corrente
+        start_y = self.get_y()
+        
+        # Etichetta KPI (Testo in alto a sinistra nel box)
+        self.set_xy(self.get_x() + 5, start_y + 5)
+        self.set_font('Arial', '', 14)
+        self.set_text_color(80, 80, 80) # Grigio scuro
+        self.cell(0, 10, title, 0, 1)
+        
+        # Valore KPI (Numero GRANDE al centro/destra)
+        self.set_xy(self.get_x(), start_y + 10)
+        font_size = 40 if is_lead else 30 # Se è un LEAD fallo enorme
+        weight = 'B' if is_lead else ''
+        self.set_font('Arial', weight, font_size)
+        self.set_text_color(0, 0, 0) # Nero assoluto
+        
+        display_value = f"{value} {unit}"
+        align = 'R' # Allineato a destra
+        self.cell(180, 15, display_value, 0, 1, align)
+        
+        # Spazio dopo il box
+        self.ln(15)
+
+    def draw_section_header(self, title, color_bar):
+        self.set_font('Arial', 'B', 18)
+        self.set_text_color(*color_bar)
+        self.cell(0, 10, title.upper(), 0, 1, 'L')
+        # Linea colorata sotto il titolo
+        self.set_draw_color(*color_bar)
+        self.set_line_width(1)
+        self.line(10, self.get_y(), 200, self.get_y())
+        self.ln(5)
+
+# --- FUNZIONE GENERAZIONE PDF ---
+def create_pdf(data_web, data_ads):
+    pdf = SeniorPDF()
+    pdf.add_page()
+
+    # SEZIONE 1: SITO WEB (Colore Blu Pastello)
+    pdf.draw_section_header("Dati Sito Web", (0, 102, 204))
+    
+    # Esempio dati Web
+    pdf.draw_card("Utenti Attivi", data_web['utenti_attivi'], "", (220, 240, 255))
+    pdf.draw_card("Utenti di Ritorno", data_web['utenti_ritorno'], "", (220, 240, 255))
+    pdf.draw_card("Tempo Medio", data_web['tempo_medio'], "min", (220, 240, 255))
+    
+    # Tabella semplificata per le Città
+    pdf.set_fill_color(240, 240, 240)
+    pdf.rect(pdf.get_x(), pdf.get_y(), 190, 25, 'F')
+    pdf.set_xy(pdf.get_x() + 5, pdf.get_y() + 5)
+    pdf.set_font('Arial', '', 12)
+    pdf.cell(0, 5, "Città Principale:", 0, 1)
+    pdf.set_font('Arial', 'B', 16)
+    pdf.set_xy(pdf.get_x() + 5, pdf.get_y())
+    pdf.cell(0, 10, str(data_web['top_citta']), 0, 1)
+    pdf.ln(10)
+
+    pdf.add_page() # Seconda pagina per chiarezza
+
+    # SEZIONE 2: PUBBLICITÀ (Colore Arancione Pastello)
+    pdf.draw_section_header("Campagne Google & Meta", (204, 102, 0))
+    
+    pdf.draw_card("Persone Raggiunte (Copertura)", data_ads['copertura'], "", (255, 240, 220))
+    pdf.draw_card("Visualizzazioni (Impression)", data_ads['impression'], "", (255, 240, 220))
+    pdf.draw_card("Click sui link", data_ads['click'], "", (255, 240, 220))
+    
+    # LEAD - Il più importante (Verde chiaro per successo)
+    pdf.draw_card("CONTATTI RICEVUTI (LEAD)", data_ads['lead'], "!", (220, 255, 220), is_lead=True)
+
+    return pdf
+
+# --- INTERFACCIA UTENTE ---
+st.title("Generatore Report Semplificato")
+st.markdown("Carica il file Excel per generare il PDF per la lettura facilitata.")
+
+uploaded_file = st.file_uploader("Carica il file Excel", type=["xlsx"])
+
+if uploaded_file is not None:
+    # Lettura del file Excel
+    df = pd.read_excel(uploaded_file)
+    
+    # Simulazione estrazione dati (Adatta queste chiavi al tuo Excel reale)
+    # Qui assumiamo che l'Excel abbia colonne: 'KPI' e 'Valore'
+    try:
+        # Trasformiamo il df in un dizionario per facilità
+        dati = dict(zip(df.KPI, df.Valore))
+        
+        # Preparazione dati puliti
+        data_web = {
+            'utenti_attivi': dati.get('Utenti Attivi', 0),
+            'utenti_ritorno': dati.get('Utenti Ritorno', 0),
+            'tempo_medio': dati.get('Tempo Medio', '0'),
+            'top_citta': dati.get('Citta', 'N/D')
+        }
+        data_ads = {
+            'copertura': dati.get('Copertura', 0),
+            'impression': dati.get('Impression', 0),
+            'click': dati.get('Click', 0),
+            'lead': dati.get('Lead', 0)
+        }
+
+        st.success("Dati letti correttamente!")
+        
+        if st.button("Genera PDF Semplificato"):
+            pdf = create_pdf(data_web, data_ads)
+            
+            # Salva in memoria buffer
+            pdf_buffer = io.BytesIO()
+            pdf_string = pdf.output(dest='S').encode('latin-1')
+            pdf_buffer.write(pdf_string)
+            
+            st.download_button(
+                label="📥 Scarica PDF Grande Formato",
+                data=pdf_string,
+                file_name="report_semplice.pdf",
+                mime="application/pdf"
+            )
+            
+    except Exception as e:
+        st.error(f"Errore nella lettura dell'Excel. Assicurati che le colonne siano corrette. Dettaglio: {e}")
+
+else:
+    st.info("In attesa del file Excel...")
+    # Creazione file Excel di esempio per test
+    example_data = {
+        'KPI': ['Utenti Attivi', 'Utenti Ritorno', 'Tempo Medio', 'Citta', 'Copertura', 'Impression', 'Click', 'Lead'],
+        'Valore': [1250, 300, '2.5', 'Milano', 15000, 22000, 450, 12]
+    }
+    df_example = pd.DataFrame(example_data)
+    
+    # Buffer per il download dell'esempio
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df_example.to_excel(writer, index=False)
+        
+    st.download_button(
+        label="Scarica modello Excel di esempio",
+        data=buffer.getvalue(),
+        file_name="modello_dati.xlsx",
+        mime="application/vnd.ms-excel"
+    )
